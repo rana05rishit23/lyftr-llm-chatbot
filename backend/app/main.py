@@ -1,4 +1,5 @@
 import logging
+import litellm
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -143,3 +144,26 @@ async def get_session_messages_endpoint(session_id: str):
         session_id=session_id,
         messages=history,
     )
+
+
+@app.get("/debug-llm")
+async def debug_llm():
+    target_model = settings.DEFAULT_MODEL
+    key_pool = settings.key_pool
+    if target_model in ["gemini/gemini-2.0-flash", "groq/llama-3.3-70b-versatile"]:
+        if any(k.startswith("gsk_") for _, k in key_pool):
+            target_model = "groq/llama-3.1-8b-instant"
+    results = []
+    for kid, k in key_pool:
+        try:
+            resp = await litellm.acompletion(
+                model=target_model,
+                messages=[{"role": "user", "content": "hi"}],
+                api_key=k,
+                max_tokens=5,
+            )
+            results.append({"key_id": kid, "status": "ok", "reply": resp.choices[0].message.content, "model": target_model})
+        except Exception as e:
+            results.append({"key_id": kid, "status": "error", "error": str(e), "type": type(e).__name__, "model": target_model})
+    return {"model": target_model, "results": results}
+
