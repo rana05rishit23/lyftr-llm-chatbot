@@ -148,22 +148,43 @@ async def get_session_messages_endpoint(session_id: str):
 
 @app.get("/debug-llm")
 async def debug_llm():
+    import httpx
     target_model = settings.DEFAULT_MODEL
     key_pool = settings.key_pool
-    if target_model in ["gemini/gemini-2.0-flash", "groq/llama-3.3-70b-versatile"]:
-        if any(k.startswith("gsk_") for _, k in key_pool):
-            target_model = "groq/llama-3.1-8b-instant"
     results = []
+    available_models = []
+
+    # Check available Groq models for key_1
+    if key_pool:
+        first_key = key_pool[0][1]
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.get(
+                    "https://api.groq.com/openai/v1/models",
+                    headers={"Authorization": f"Bearer {first_key}"},
+                    timeout=10,
+                )
+                if res.status_code == 200:
+                    available_models = [m["id"] for m in res.json().get("data", [])]
+                else:
+                    available_models = [f"Status {res.status_code}: {res.text}"]
+        except Exception as groq_err:
+            available_models = [f"Fetch error: {groq_err}"]
+
     for kid, k in key_pool:
+        # Try first available model, or fallback
+        test_model = f"groq/{available_models[0]}" if (available_models and not available_models[0].startswith("Status")) else "groq/llama3-8b-8192"
         try:
             resp = await litellm.acompletion(
-                model=target_model,
+                model=test_model,
                 messages=[{"role": "user", "content": "hi"}],
                 api_key=k,
                 max_tokens=5,
             )
-            results.append({"key_id": kid, "status": "ok", "reply": resp.choices[0].message.content, "model": target_model})
+            results.append({"key_id": kid, "status": "ok", "reply": resp.choices[0].message.content, "model": test_model})
         except Exception as e:
-            results.append({"key_id": kid, "status": "error", "error": str(e), "type": type(e).__name__, "model": target_model})
-    return {"model": target_model, "results": results}
+            results.append({"key_id": kid, "status": "error", "error": str(e), "type": type(e).__name__, "model": test_model})
+            
+    return {"available_models": available_models, "results": results}
+
 
