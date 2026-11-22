@@ -66,6 +66,15 @@ async def execute_chat(
     key_pool = settings.key_pool
     configured_key_ids = [kid for kid, _ in key_pool]
 
+    # Auto-detect provider if keys match known formats and model was left at default gemini
+    if target_model == "gemini/gemini-2.0-flash":
+        if any(k.startswith("gsk_") for _, k in key_pool):
+            target_model = "groq/llama-3.3-70b-versatile"
+            logger.info("Auto-detected Groq key format, routing to groq/llama-3.3-70b-versatile")
+        elif any(k.startswith("sk-") and not k.startswith("gsk_") for _, k in key_pool):
+            target_model = "openai/gpt-4o-mini"
+            logger.info("Auto-detected OpenAI key format, routing to openai/gpt-4o-mini")
+
     # Parse failure simulations if enabled
     sim_failures: Dict[str, int] = {}
     if settings.ENABLE_FAILURE_SIMULATION and simulate_failure_header:
